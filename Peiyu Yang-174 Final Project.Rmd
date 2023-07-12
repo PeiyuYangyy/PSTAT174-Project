@@ -1,0 +1,296 @@
+---
+title: "Peiyu Yang-174 final project"
+author: "Peiyu Yang"
+date: "2/25/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+The data set that I chose is about CO2 emissions that are produced by coal. This dataset contains the emission of CO2 from coal consumption in the United States from 1973 to 2007 monthly. I chose this dataset because I think CO2 emission is related to global warming, and global warming is related to our daily life. So I want to forecast the emission of CO2 caused by coal consumption for the following years, and hopefully, people can have a brief thoughts about how will the amount of CO2 emissions change in the future. 
+
+In this project, I obtained the data from U.S. Energy Information Administration and used RStudio to procedure my analysis and forecasting. I used techniques related to time series, such as plotting my data as time series, doing transformations to make my data stationary with no trend and no seasonality. I also used ACF and PACF graphs to determine the order of my model in order to do further actions. Besides, I also used diagnostic checkings to analyze my residuals to see whether my model is adequate. After ensuring my model fits my data well, I used forecasting skills to forecast future possible data, and then compare my forecasted data with real data to see whether the model I chose is good enough for the dataset. 
+
+After doing these steps, I successfully obtained an ideal model that can be used to forecast future data points. Although some of the actual data points fit with my predicted points and they are all within the confidence interval of my model, there is still some difference between the actual data and the predicted data. But overall, I think the model that I identified for the data is good enough for forecasting. 
+
+# Sections
+```{r}
+par(mfrow=c(1,2))
+coal.csv <- read.table("/Users/peiyu/Desktop/Coal_Including_Coal_Coke_Net_Imports_CO2_Emissions_Monthly.csv", 
+                         sep=',', skip=171)
+head(coal.csv)
+coal <- ts(coal.csv$V2)
+ts.plot(coal)
+fit <- lm(coal~as.numeric(1:length(coal)))
+abline(fit, col='red')
+abline(h=mean(coal), col='blue')
+coalt=coal[c(1:140)]
+coal_test=coal[c(141:152)]
+plot.ts(coalt)
+fit <- lm(coalt~as.numeric(1:length(coalt)))
+abline(fit, col='red')
+abline(h=mean(coalt), col='blue')
+par(mfrow=c(1,3))
+hist(coalt, col='light blue', xlab='', main='Histogram of coal')
+acf(coalt, lag.max=50, main='ACF for coal')
+pacf(coalt, lag.max=50, main='PACF for coal')
+```
+
+For this dataset, I chose 152 data as the total data I have. I divided the  data into two parts. The first 140 data is used as training dataset, and the next 12 data is used as test dataset for future forecasting. 
+From the plots, I think there is no sharp changes, but there is a decreasing trend and seasonal part. Therefore, I decide to decompose the data to see more details. 
+
+```{r}
+library(ggplot2)
+library(ggfortify)
+#install.packages("ggplot2")
+#install.packages("ggfortify")
+y <- ts(as.ts(coalt), frequency=12)
+decomp <- decompose(y)
+plot(decomp)
+```
+
+From the decomposition graphs of the data, it show seasonality and decreasing trend of the data. So the next step to do is to difference the data to remove seasonality and the decreasing trend. From the ACF graph, I can tell the seasonality component for this dataset is 12, so I decide to difference the data at lag 1 once to remove the trend, and difference it again at lag 12 to remove the seasonality.  
+
+```{r}
+par(mfrow=c(1,3))
+dcoalt <- diff(coalt,1)
+ts.plot(dcoalt)
+fit <- lm(dcoalt~as.numeric(1:length(dcoalt)))
+abline(fit, col='red')
+abline(h=mean(dcoalt), col='blue')
+acf(dcoalt, lag.max=50)
+pacf(dcoalt, lag.max=50)
+ddcoalt <- diff(dcoalt,lag=12, differences=1)
+par(mfrow=c(1,2))
+ts.plot(ddcoalt)
+fit <- lm(ddcoalt~as.numeric(1:length(ddcoalt)))
+abline(fit, col='red')
+abline(h=mean(ddcoalt), col='blue')
+hist(ddcoalt, col='light blue', xlab='', main='Histogram of ddcoalt')
+acf(ddcoalt, lag.max=50)
+pacf(ddcoalt, lag.max=50)
+var(coalt)
+var(dcoalt)
+var(ddcoalt)
+```
+
+After differencing the data at lag 1 once and at lag 12 once, there is no trend and no seasonality anymore, and the variance is lower than the original data. From the ACF and PACF graphs, they didn't show any indication of existence of trend and seasonality. And the histogram of ddcoalt looks more symmetric than the original data. Therefore, I think the data is stationary now, and good enough for me to try fit the model. 
+
+### Trying models
+From the ACF and PACF graphs, they indicate me to choose s=12, d=1, D=1, p=2, q=1 or 3, P=1, Q=1.
+
+```{r}
+library(qpcR)
+df <- expand.grid(p=0:2, q=0:3, P=0:1, Q=0:1)
+df <- cbind(df, AICc=NA)
+for (i in 1:nrow(df)) {
+sarima.obj <- NULL
+try(arima.obj <- arima(coalt, order=c(df$p[i], 1, df$q[i]),
+seasonal=list(order=c(df$P[i], 1, df$Q[i]), period=12),
+method="ML"))
+if (!is.null(arima.obj)) { df$AICc[i] <- AICc(arima.obj) }
+# print(df[i, ])
+}
+df[which.min(df$AICc), ]
+```
+
+```{r}
+sort(df$AICc, decreasing=F)
+df
+```
+
+```{r}
+arima(coalt, order=c(1,1,1), seasonal=list(order=c(0,1,1), period=12), method="ML")
+```
+```{r}
+AICc(arima(coalt, order=c(1,1,1), seasonal=list(order=c(0,1,1), period=12), method="ML"))
+```
+
+```{r}
+# Model A
+arima(coalt, order=c(1,1,1), seasonal=list(order=c(1,1,1), period=12), method="ML")
+```
+```{r}
+AICc(arima(coalt, order=c(1,1,1), seasonal=list(order=c(1,1,1), period=12), method="ML"))
+```
+
+```{r}
+# Model B
+arima(coalt, order=c(0,1,2), seasonal=list(order=c(0,1,1), period=12), method="ML")
+```
+```{r}
+AICc(arima(coalt, order=c(0,1,2), seasonal=list(order=c(0,1,1), period=12), method="ML"))
+```
+
+For the model choosing, I ran a for loop to estimate which model produce the lowest AICc value. I chose models that have the lowest to estimate the coefficients. Although this model has the lowest AICc value, it produces NaNs value. Therefore, I decide to model the coefficients with the second lowest AICc value and the third lowest AICc value. 
+
+$(A): (1-0.5136B)(1+0.049B^{12})(1-B)(1-B^{12})X_t = (1-0.961B)(1-0.7955B^{12})Z_t \text{, } \sigma_Z^2=16.62$
+
+$(B): (1-B)(1-B^{12})X_t = (1-0.4381B-0.294B^2)(1-0.8568B^{12})Z_t \text{, } \sigma_Z^2=16.92$
+
+
+### Check invertible and stationary
+```{r}
+library(UnitCircle)
+# For model A
+par(mfrow=c(1,4))
+uc.check(pol_=c(1,-0.5136), plot_output=T)
+uc.check(pol_=c(1,0.049), plot_output=T)
+uc.check(pol_=c(1,-0.961), plot_output=T)
+uc.check(pol_=c(1,-0.7955), plot_output=T)
+```
+
+```{r}
+# For model B
+par(mfrow=c(1,2))
+uc.check(pol_=c(1,-0.4381,-0.294), plot_output=T)
+uc.check(pol_=c(1,-0.8568), plot_output=T)
+```
+
+Model B is stationary since it is pure MA. 
+
+Both model A and model B are invertible and stationary. 
+
+### Diagnostic checking for Model A
+```{r}
+par(mfrow=c(1,3))
+fit_a <- arima(coalt, order=c(1,1,1), seasonal=list(order=c(1,1,1), period=12), method="ML")
+res_a <- residuals(fit_a)
+hist(res_a,density=20, breaks=20, col='blue', xlab='', prob=TRUE)
+m_a <- mean(res_a)
+std_a <- sqrt(var(res_a))
+curve(dnorm(x,m_a,std_a), add=T)
+plot.ts(res_a)
+fitt_a <- lm(res_a~as.numeric(1:length(res_a)))
+abline(fitt_a, col='red')
+abline(h=mean(res_a), col='blue')
+qqnorm(res_a, main="Normal Q-Q Plot for Model A")
+qqline(res_a, col='blue')
+par(mfrow=c(1,2))
+acf(res_a, lag.max=50)
+pacf(res_a, lag.max=50)
+```
+
+From the graphs, we can tell there is no trend, no visible change of variance, and no seasonality. The sample mean is almost zero, and histogram and Q-Q plot look good. 
+From the ACF and PACF grapgs, we can tell all ACF of residuals are within confidence intervals and can be counted as zeros. But for the PACF graph of residuals, there are some lags that are outside of the confidence interval.  
+
+```{r}
+shapiro.test(res_a)
+```
+
+```{r}
+Box.test(res_a, lag=12, type=c("Box-Pierce"), fitdf=4)
+```
+
+```{r}
+Box.test(res_a, lag=12, type=c("Ljung-Box"), fitdf=4)
+```
+
+```{r}
+Box.test((res_a)^2, lag=12, type=c("Ljung-Box"), fitdf=0)
+```
+
+For these four tests, all p-value is greater than 0.05. 
+
+```{r}
+ar(res_a, aic=TRUE, order.max=NULL, method=c("yule-walker"))
+```
+
+Fitted residuals to AR(0), which is WN.
+
+### Diagnostic checking for model B
+```{r}
+par(mfrow=c(1,3))
+fit_b <- arima(coalt, order=c(0,1,2), seasonal=list(order=c(0,1,1), period=12), method="ML")
+res_b <- residuals(fit_b)
+hist(res_b,density=20, breaks=20, col='blue', xlab='', prob=TRUE)
+m_b <- mean(res_b)
+std_b <- sqrt(var(res_b))
+curve(dnorm(x,m_b,std_b), add=T)
+plot.ts(res_b)
+fitt_b <- lm(res_b~as.numeric(1:length(res_b)))
+abline(fitt_b, col='red')
+abline(h=mean(res_b), col='blue')
+qqnorm(res_b, main="Normal Q-Q Plot for Model B")
+qqline(res_b, col='blue')
+par(mfrow=c(1,2))
+acf(res_b, lag.max=50)
+pacf(res_b, lag.max=50)
+```
+
+From the graphs, we can tell there is no trend, no visible change of variance, and no seasonality. The sample mean is almost zero, and histogram and Q-Q plot look good. All ACF and PACF of residuals are within confidence intervals and can be counted as zeros. 
+
+```{r}
+shapiro.test(res_b)
+```
+
+```{r}
+Box.test(res_b, lag=12, type=c("Box-Pierce"), fitdf=3)
+```
+
+```{r}
+Box.test(res_b, lag=12, type=c("Ljung-Box"), fitdf=3)
+```
+
+```{r}
+Box.test((res_b)^2, lag=12, type=c("Ljung-Box"), fitdf=0)
+```
+
+For these four tests, all p-value is greater than 0.05. 
+
+```{r}
+ar(res_b, aic=TRUE, order.max=NULL, method=c("yule-walker"))
+```
+
+Fitted residuals to AR(0), which is WN. It passes all diagnostic checking, so it is ready to be used for forecasting. 
+
+For model A, the PACF graph indicates there are some lags outside of the confidence interval. For model B, the ACF and PACF look better than model A. Also, model A estimates 4 coefficients and model B estimates 3 coefficients. Because of the principle of parsimony, it also suggests me to choose model B. Therefore I will choose model B to do further forecasting. 
+
+Therefore, the final model that can be used for forecasting is 
+coalt follows SARIMA$(0,1,2)(0,1,1)_{12}$
+$$(1-B)(1-B^{12})X_t = (1-0.4381B-0.294B^2)(1-0.8568B^{12})Z_t \text{, } \sigma_Z^2=16.92$$
+
+### Forecasting
+
+```{r}
+# install.packages("forecast")
+library(forecast)
+forecast(fit_b)
+```
+
+```{r}
+pred.tr <- predict(fit_b, n.ahead=12)
+U.tr <- pred.tr$pred+1.96*pred.tr$se
+L.tr <- pred.tr$pred-1.96*pred.tr$se
+ts.plot(coalt, xlim=c(120, length(coalt)+12), ylim=c(120, max(U.tr)))
+lines(U.tr, col="blue", lty="dashed")
+lines(L.tr, col="blue", lty="dashed")
+points((length(coalt)+1):(length(coalt)+12),pred.tr$pred, col="red")
+```
+
+```{r}
+ts.plot(coal, xlim = c(120,length(coalt)+12), ylim = c(120,max(U.tr)), col="red")
+lines(U.tr, col="blue", lty="dashed")
+lines(L.tr, col="blue", lty="dashed")
+points((length(coalt)+1):(length(coalt)+12), pred.tr$pred, col="black")
+```
+
+The red line represents the original data, and the black circles represents the forecasted data. The test set is within prediction intervals. 
+
+# Conclusion
+For this project, the goal I intended to achieve is by using RStudio and skills about time series with previous data to forecast future values. After applying skills to make my selected data stationary and selecting models and coefficients, I obtained an ideal model that can be used to forecast future data points. Although some of the actual data points fit with my predicted points and they are all within the confidence interval of my model, there is still some difference between the actual data and the predicted data. Despite the difference between the actual data and predicted data, I still think I have achieved my goal of forecasting since the majority trend of data points matches. For this project, I got help from professor Feldman and TA Youhong Lee. The final model I chose for my data is SARIMA$(0,1,2)(0,1,1)_{12}$
+$$(1-B)(1-B^{12})X_t = (1-0.4381B-0.294B^2)(1-0.8568B^{12})Z_t \text{, } \sigma_Z^2=16.92$$
+
+
+# Reference
+Lecture notes, U.S. Energy Information Administration. 
+
+# Appendix
+```{r appendix, ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+
